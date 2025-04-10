@@ -9,6 +9,11 @@ def func_call(s):
     result = run(s, capture_output=True, text=True)
     return result
 
+def command(a):
+    with open("/tmp/temp.sh","w") as file:
+        file.write(f"{a}\n")
+    os.system("bash /tmp/temp.sh")
+
 def scan():
     result = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout.strip()
     data = json.loads(result)
@@ -27,36 +32,6 @@ def scan():
                     table_data.append(x)
 
     print(tabulate(table_data, headers=headers, tablefmt="grid"))
-
-def change_dir(path):
-    with open("/tmp/temp.sh", "w") as f:
-        f.write(f"cd {path}\n")
-        f.write("exec $SHELL\n")
-    os.system("bash /tmp/temp.sh")
-
-def delete(path):
-    with open("/tmp/temp.sh", "w") as f:
-        f.write(f"rm {path}\n")
-        f.write("exec $SHELL\n")
-    os.system("bash /tmp/temp.sh")
-
-def move(src,dest):
-    with open("/tmp/temp.sh","w") as file:
-        file.write(f"mv {src} {dest}\n")
-        file.write("exec $SHELL\n")
-    os.system("bash /tmp/temp.sh")
-
-def copy(src,dest):
-    with open("/tmp/temp.sh","w") as file:
-        file.write(f"cp {src} {dest}\n")
-        file.write("exec $SHELL\n")
-    os.system("bash /tmp/temp.sh")
-
-def command(a):
-    with open("/tmp/temp.sh","w") as file:
-        file.write(f"{a}\n")
-        file.write("exec $SHELL\n")
-    os.system("bash /tmp/temp.sh")
 
 def help():
     print("\nAvailable commands:")
@@ -101,13 +76,14 @@ def mount_device(identifier):
         result = -1
         mount_cmd = ""
         if identifier == path:
-            mount_cmd = f'sudo mount "{identifier}" {mount_point}'
+            mount_cmd = f'sudo mount {path} {mount_point}'
         elif identifier == info["label"]:
-            mount_cmd = f'sudo mount LABEL="{identifier}" {mount_point}'
+            mount_cmd = f'sudo mount {path} {mount_point}'
         elif identifier == info["uuid"]:
-            mount_cmd = f'sudo mount UUID="{identifier}" {mount_point}'
+            mount_cmd = f'sudo mount {path} {mount_point}'
         
         if mount_cmd!="":
+            print(mount_cmd)
             result = func_call(mount_cmd)
             if result.returncode == 0:
                 print(f"Successfully mounted {identifier} at {mount_point}")
@@ -120,6 +96,7 @@ def mount_device(identifier):
     print(f"No matching device found for identifier: {identifier}")
 
 def unmount_device(identifier):
+    identifier = identifier.replace(" ","_")
     mount_point = f"/mnt/{identifier}"
     unmount_cmd = f"sudo umount {mount_point}"
     result = func_call(unmount_cmd)
@@ -128,80 +105,69 @@ def unmount_device(identifier):
     else:
         print(f"Failed to unmount {mount_point}: {result.stderr.strip()}")
 
-def write():
-    pass
-
 while True:
-    input_str = input("vfs > ").strip().split()
-    if input_str[0] == "exit":
-        break
+    w = func_call("pwd").stdout.strip()
+    input_str = input(f"vfs: {w} > ").strip().split()
 
-    elif input_str[0] == "scan":
-        scan()
-
-    elif input_str[0] == "help":
-        help()
+    if input_str[0] == "exit": break
+    elif input_str[0] == "scan": scan()
+    elif input_str[0] == "help": help()
 
     elif input_str[0] == "cd":
         if len(input_str) > 1:
             path = input_str[1]
-            change_dir(path)
+            os.chdir(path)
         else:
             print("Usage: cd <path>")
     
     elif input_str[0] == "delete":
         if len(input_str) > 1:
             path = " ".join(input_str[1:])
-            delete(path)
+            command(f'rm -rf {path}')
         else:
             print("Usage: delete <path>")
 
     elif input_str[0] == "move":
         if len(input_str) > 2:
-            src = input_str[1]
-            dest = input_str[2]
-            move(src, dest)
+            all = " ".join(input_str[1:])
+            command(f'mv {all}')
         else:
             print("Usage: move <source> <destination>")
 
     elif input_str[0] == "copy":
         if len(input_str) > 2:
-            src = input_str[1]
-            dest = input_str[2]
-            copy(src, dest)
+            all = " ".join(input_str[1:])
+            command(f'cp {all}')
         else:
             print("Usage: copy <source> <destination>")
 
-    elif input_str[0] == "ls":
-        command("ls")
-    elif input_str[0] == "pwd":
-        command("pwd")
+    elif input_str[0] == "ls": command("ls")
+    elif input_str[0] == "pwd": command("pwd")
+
     elif input_str[0] == "print":
         if len(input_str) > 1:
             file_path = " ".join(input_str[1:])
-            a = f'cat "{file_path}"'
-            print(a)
-            command(a)
+            command(f'cat {file_path}')
         else:
             print("Usage: print <file>")
 
     elif input_str[0] == "write":
         if len(input_str) > 1:
-            file = input_str[1]
-            write(file)
+            file = " ".join(input_str[1:])
+            command(f'nano {file}')
         else:
             print("Usage: write <file>")
     
     elif input_str[0] == "mount":
         if len(input_str) > 1:
-            identifier = input_str[1]
+            identifier = " ".join(input_str[1:])
             mount_device(identifier)
         else:
             print("Usage: mount <identifier>")
 
     elif input_str[0] == "umount":
         if len(input_str) > 1:
-            identifier = input_str[1]
+            identifier = " ".join(input_str[1:])
             unmount_device(identifier)
         else:
             print("Usage: umount <identifier>")
