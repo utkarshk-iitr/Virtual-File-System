@@ -37,12 +37,12 @@ def mount_device(identifier, mount_point=None):
                 mount_point = f"/mnt/{label}"
             elif not mount_point:
                 print_help()
-            # Ensure the mount point exists
+
             func_call(f"sudo mkdir -p {mount_point}")
-            # Attempt to mount the device
             if fstype == "N/A":
                 print(f"Cannot mount {identifier}: Filesystem type not detected.")
                 return
+            
             mount_cmd = f"sudo mount -t {fstype} {path} {mount_point}"
             result = func_call(mount_cmd)
             if result.returncode == 0:
