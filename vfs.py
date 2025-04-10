@@ -53,16 +53,15 @@ def copy(src,dest):
     os.system("bash /tmp/temp.sh")
 
 def command(a):
-    result = func_call(a)
-    error = result.stderr.strip()
-    result = result.stdout.strip()
-    if error: print(error)
-    else: print(result)
+    with open("/tmp/temp.sh","w") as file:
+        file.write(f"{a}\n")
+        file.write("exec $SHELL\n")
+    os.system("bash /tmp/temp.sh")
 
 def help():
     print("\nAvailable commands:")
     print("  scan - Scan and list all devices")
-    print("  mount <identifier> [mount_point] - Mount a device")
+    print("  mount <identifier> - Mount a device")
     print("  umount <identifier> - Unmount a device")
     print("  cd <path> - Change directory to the specified path")   
     print("  delete <path> - Delete the specified file or directory")
@@ -75,6 +74,62 @@ def help():
     print("  help - Show this help message")
     print("  exit - Exit the program\n")
 
+def get_device_info():
+    result = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout.strip()
+    data = json.loads(result)
+    device_map = {}
+
+    for device in data.get("blockdevices", []):
+        for partition in device.get("children", []):
+            path = partition.get("path")
+            if path:
+                device_map[path] = {
+                    "label": partition.get("label", "N/A"),
+                    "uuid": partition.get("uuid", "N/A"),
+                    "fstype": partition.get("fstype", "N/A"),
+                    "name": partition.get("name", "N/A")
+                }
+    return device_map
+
+def mount_device(identifier):
+    device_map = get_device_info()
+    mount_point = "/mnt/"+identifier
+    mount_point = mount_point.replace(" ","_")
+    func_call(f"sudo mkdir -p {mount_point}")
+
+    for path, info in device_map.items():
+        result = -1
+        mount_cmd = ""
+        if identifier == path:
+            mount_cmd = f'sudo mount "{identifier}" {mount_point}'
+        elif identifier == info["label"]:
+            mount_cmd = f'sudo mount LABEL="{identifier}" {mount_point}'
+        elif identifier == info["uuid"]:
+            mount_cmd = f'sudo mount UUID="{identifier}" {mount_point}'
+        
+        if mount_cmd!="":
+            result = func_call(mount_cmd)
+            if result.returncode == 0:
+                print(f"Successfully mounted {identifier} at {mount_point}")
+                print(f"To navigate to the mounted directory, run: cd {mount_point}")
+                return
+            else:
+                print(f"Failed to mount {identifier}: {result.stderr.strip()}")
+            return
+
+    print(f"No matching device found for identifier: {identifier}")
+
+def unmount_device(identifier):
+    mount_point = f"/mnt/{identifier}"
+    unmount_cmd = f"sudo umount {mount_point}"
+    result = func_call(unmount_cmd)
+    if result.returncode == 0:
+        print(f"Successfully unmounted {mount_point}.")
+    else:
+        print(f"Failed to unmount {mount_point}: {result.stderr.strip()}")
+
+def write():
+    pass
 
 while True:
     input_str = input("vfs > ").strip().split()
@@ -96,7 +151,7 @@ while True:
     
     elif input_str[0] == "delete":
         if len(input_str) > 1:
-            path = input_str[1]
+            path = " ".join(input_str[1:])
             delete(path)
         else:
             print("Usage: delete <path>")
@@ -123,10 +178,33 @@ while True:
         command("pwd")
     elif input_str[0] == "print":
         if len(input_str) > 1:
-            file_path = input_str[1]
-            command(f"cat {file_path}")
+            file_path = " ".join(input_str[1:])
+            a = f'cat "{file_path}"'
+            print(a)
+            command(a)
         else:
             print("Usage: print <file>")
 
+    elif input_str[0] == "write":
+        if len(input_str) > 1:
+            file = input_str[1]
+            write(file)
+        else:
+            print("Usage: write <file>")
+    
+    elif input_str[0] == "mount":
+        if len(input_str) > 1:
+            identifier = input_str[1]
+            mount_device(identifier)
+        else:
+            print("Usage: mount <identifier>")
+
+    elif input_str[0] == "umount":
+        if len(input_str) > 1:
+            identifier = input_str[1]
+            unmount_device(identifier)
+        else:
+            print("Usage: umount <identifier>")
+        
     else:
         print("Invalid command.")

@@ -25,35 +25,35 @@ def get_device_info():
                 }
     return device_map
 
-def mount_device(identifier, mount_point=None):
+def mount_device(identifier):
     device_map = get_device_info()
+    mount_point = "/mnt/"+identifier
+    func_call(f"sudo mkdir -p {mount_point}")
 
     for path, info in device_map.items():
-        if identifier in (path, info["label"], info["uuid"], info["name"]):
-
-            fstype = info["fstype"]
-            label = info["label"]
-            if not mount_point and label != "N/A":
-                mount_point = f"/mnt/{label}"
-            elif not mount_point:
-                print_help()
-
-            func_call(f"sudo mkdir -p {mount_point}")
-            if fstype == "N/A":
-                print(f"Cannot mount {identifier}: Filesystem type not detected.")
-                return
-            
-            mount_cmd = f"sudo mount -t {fstype} {path} {mount_point}"
+        result = -1
+        mount_cmd = ""
+        if identifier == path:
+            mount_cmd = f"sudo mount {identifier} {mount_point}"
+        elif identifier == info["label"]:
+            mount_cmd = f"sudo mount -L {identifier} {mount_point}"
+        elif identifier == info["uuid"]:
+            mount_cmd = f"sudo mount -U {identifier} {mount_point}"
+        
+        if mount_cmd!="":
             result = func_call(mount_cmd)
             if result.returncode == 0:
                 print(f"Successfully mounted {identifier} at {mount_point}")
                 print(f"To navigate to the mounted directory, run: cd {mount_point}")
+                return
             else:
                 print(f"Failed to mount {identifier}: {result.stderr.strip()}")
             return
+
     print(f"No matching device found for identifier: {identifier}")
 
-def unmount_device(mount_point):
+def unmount_device(identifier):
+    mount_point = f"/mnt/{identifier}"
     unmount_cmd = f"sudo umount {mount_point}"
     result = func_call(unmount_cmd)
     if result.returncode == 0:
@@ -63,26 +63,21 @@ def unmount_device(mount_point):
 
 def print_help():
     print("Usage:")
-    print("  Mount: python test.py -m <identifier> <mount_point>")
-    print("  Unmount: python test.py -u <mount_point>")
-    print("Identifier can be a device name, label, path, or UUID.")
+    print("  Mount: python test.py -m <identifier>")
+    print("  Unmount: python test.py -u <identifier>")
+    print("Identifier can be a label, path, or UUID")
 
-# Main
 if len(sys.argv) < 2 or sys.argv[1] in ("-h", "--help"):
     print_help()
     sys.exit(1)
 
 action = sys.argv[1]
-if action == "-m" and len(sys.argv) == 4:
-    identifier = sys.argv[2]
-    mount_point = sys.argv[3]
-    mount_device(identifier, mount_point)
-elif action == "-m" and len(sys.argv) == 3:
+if action == "-m" and len(sys.argv) == 3:
     identifier = sys.argv[2]
     mount_device(identifier)
 elif action == "-u" and len(sys.argv) == 3:
-    mount_point = sys.argv[2]
-    unmount_device(mount_point)
+    identifier = sys.argv[2]
+    unmount_device(identifier)
 else:
     print(sys.argv)
     print("Invalid arguments. Use -h or --help for usage instructions.")
