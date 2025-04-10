@@ -1,7 +1,6 @@
 from subprocess import run 
 import json
 from tabulate import tabulate
-import sys
 import os
 
 def func_call(s):
@@ -84,11 +83,12 @@ def mount_device(identifier):
             mount_cmd = f'sudo mount {path} {mount_point}'
         
         if mount_cmd!="":
-            print(mount_cmd)
+            # print(mount_cmd)
             result = func_call(mount_cmd)
             if result.returncode == 0:
                 print(f"Successfully mounted {identifier} at {mount_point}")
                 print(f"To navigate to the mounted directory, run: cd {mount_point}")
+                print(f"Unmount it using: umount {mount_point[5:]}")
                 return
             else:
                 print(f"Failed to mount {identifier}: {result.stderr.strip()}")
