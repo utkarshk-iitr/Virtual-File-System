@@ -47,7 +47,7 @@ def help():
     print("  print <file> - Print the contents of a file")
     print("  write <file> - Write to a file")
     print("  help - Show this help message")
-    print("  exit - Exit the program\n")
+    print("  exit - Exit the program")
 
 def get_device_info():
     result = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout.strip()
@@ -76,6 +76,7 @@ def mount_device(identifier):
         result = -1
         mount_cmd = ""
         if identifier == path:
+            mount_point = mount_point.replace("/dev/","")
             mount_cmd = f'sudo mount {path} {mount_point}'
         elif identifier == info["label"]:
             mount_cmd = f'sudo mount {path} {mount_point}'
@@ -105,7 +106,13 @@ def unmount_device(identifier):
     else:
         print(f"Failed to unmount {mount_point}: {result.stderr.strip()}")
 
+print("Welcome to the Virtual File System (VFS)!")
+print("Type 'help' for a list of commands")
+print("Note: This program requires root privileges to mount and unmount devices")
+print("Make sure to run it with sudo or as root")
+
 while True:
+    print()
     w = func_call("pwd").stdout.strip()
     input_str = input(f"vfs: {w} > ").strip().split()
 
@@ -116,7 +123,8 @@ while True:
     elif input_str[0] == "cd":
         if len(input_str) > 1:
             path = input_str[1]
-            os.chdir(path)
+            try: os.chdir(path)
+            except: print(f"Failed to change directory to {path}")
         else:
             print("Usage: cd <path>")
     
