@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 from subprocess import run 
 import json
 from tabulate import tabulate
