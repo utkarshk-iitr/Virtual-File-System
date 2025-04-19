@@ -114,7 +114,7 @@ print("Make sure to run it with sudo or as root")
 while True:
     print()
     w = func_call("pwd").stdout.strip()
-    input_str = input(f"vfs: {w} > ").strip().split()
+    input_str = input(f"\033[92mvfs: \033[94m{w} \033[0m> ").strip().split()
 
     if input_str[0] == "exit": break
     elif input_str[0] == "scan": scan()
@@ -131,7 +131,12 @@ while True:
     elif input_str[0] == "delete":
         if len(input_str) > 1:
             path = " ".join(input_str[1:])
-            command(f'rm -rf {path}')
+            ch = input(f"Are you sure you want to delete ? (y/n): ").strip().lower()
+            if ch == "y":
+                command(f'rm -rf {path}')
+                print(f"Deleted {path}")
+            else:
+                print("Deletion cancelled")
         else:
             print("Usage: delete <path>")
 
@@ -149,8 +154,8 @@ while True:
         else:
             print("Usage: copy <source> <destination>")
 
-    elif input_str[0] == "ls": command("ls")
-    elif input_str[0] == "pwd": command("pwd")
+    elif input_str[0] == "ls" and len(input_str)==1: command("ls")
+    elif input_str[0] == "pwd" and len(input_str)==1: command("pwd")
 
     elif input_str[0] == "print":
         if len(input_str) > 1:
@@ -181,4 +186,4 @@ while True:
             print("Usage: umount <identifier>")
         
     else:
-        print("Invalid command.")
+        print("Invalid command")
