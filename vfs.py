@@ -116,15 +116,16 @@ print("Make sure to run it with sudo or as root")
 while True:
     print()
     w = func_call("pwd").stdout.strip()
-    input_str = input(f"\033[92mvfs: \033[94m{w} \033[0m> ").strip().split()
+    input_str = input(f"\033[92mvfs: \033[93m{w} \033[0m> ").strip().split()
 
+    if len(input_str) == 0: continue
     if input_str[0] == "exit": break
     elif input_str[0] == "scan": scan()
     elif input_str[0] == "help": help()
 
     elif input_str[0] == "cd":
         if len(input_str) > 1:
-            path = input_str[1]
+            path = " ".join(input_str[1:])
             try: os.chdir(path)
             except: print(f"Failed to change directory to {path}")
         else:
