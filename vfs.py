@@ -146,6 +146,7 @@ def show_help():
         "delete <path>": "Delete a file or directory.",
         "move <src> <dst>": "Move or rename a file/directory.",
         "copy <src> <dst>": "Copy a file or directory.",
+        "mkdir <path>": "Create a directory (with parents).",    
         "print <file>": "Display file contents.",
         "write <file>": "Edit a file using nano.",
         "help": "Show this help message.",
@@ -223,5 +224,14 @@ if __name__ == '__main__':
                 unmount_iphone(ident)
             else:
                 unmount_device(ident)
+        elif cmd == 'mkdir' and args:
+            path = args[0]
+            # -p makes parents as needed; wraps in sudo if you want root dirs
+            res = func_call(f"mkdir -p {path}")
+            if res.returncode == 0:
+                print(f"Directory created: {path}")
+            else:
+                print(f"Failed to create directory '{path}': {res.stderr}")
+        
         else:
             print("Unknown command. Type 'help' for list.")
