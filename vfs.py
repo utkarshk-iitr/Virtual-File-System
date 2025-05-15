@@ -1,192 +1,227 @@
 #!/usr/bin/env python3
-
-from subprocess import run 
-import json
-from tabulate import tabulate
+"""
+Virtual File System (VFS) CLI tool with support for block devices and iOS devices via ifuse.
+Requires root privileges for mounting/unmounting.
+"""
 import os
+import sys
+import json
+from subprocess import run
+from tabulate  import tabulate
+import textwrap
 
-def func_call(s):
-    s = s.split()
-    result = run(s, capture_output=True, text=True)
-    return result
+# Helper to execute commands
+def func_call(cmd):
+    args = cmd.split()
+    return run(args, capture_output=True, text=True)
 
-def command(a):
-    with open("/tmp/temp.sh","w") as file:
-        file.write(f"{a}\n")
-    os.system("bash /tmp/temp.sh")
+# Execute arbitrary shell command (used for simple wrappers)
+def command(cmd):
+    script = f"#!/bin/bash\n{cmd}\n"
+    path = "/tmp/vfs_temp.sh"
+    with open(path, "w") as f:
+        f.write(script)
+    os.chmod(path, 0o700)
+    os.system(path)
 
+# Scan: list block devices and connected iOS devices
 def scan():
-    result = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout.strip()
-    data = json.loads(result)
-    device_map = {}
+    try:
+        ios_list = func_call("idevice_id -l").stdout.strip().splitlines()
+    except Exception as e:
+        ios_list = []
+        print(f"Error detecting iOS devices: {e}")
 
-    table_data = []
-    headers = ["Path", "Label", "Size", "Filesystem Type", "UUID"]
+    blk_out = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout
+    data = json.loads(blk_out)
 
-    for device in data.get("blockdevices", []):
-        for partition in device.get("children", []):
-            path = partition.get("path")
+    headers = ["Type", "Identifier", "Label/UDID", "Size","FSTYPE", "Mount Point"]
+    rows = []
+
+    for dev in data.get("blockdevices", []):
+        for part in dev.get("children", []):
+            path = part.get("path")
+            if not path:
+                continue
+            label = part.get("label") or ""
+            uuid = part.get("uuid") or ""
+            size = part.get("size") or ""
+            fstype = part.get("fstype") or ""
+            hint = f"/mnt{path}" if fstype else ""
+            rows.append(["Block", path, label or uuid,size,fstype, hint])
+
+    for udid in ios_list:
+        rows.append(["iOS", udid, "", "-","AFC", f"/mnt/iphone_{udid[:8]}"])
+
+    print(tabulate(rows, headers=headers, tablefmt="grid"))
+
+# Mount regular block device
+def mount_device(ident):
+    blk_out = func_call("lsblk -o NAME,PATH,LABEL,UUID,FSTYPE -J").stdout
+    data = json.loads(blk_out)
+    devmap = {}
+    for dev in data.get("blockdevices", []):
+        for part in dev.get("children", []):
+            path = part.get("path")
             if path:
-                device_map[path] = [partition.get("label", "N/A"),partition.get("size", "N/A"),partition.get("fstype", "N/A"),partition.get("uuid", "N/A")]
-                x = [path] + device_map[path]
-                if x[4] != None:
-                    table_data.append(x)
+                devmap[path] = part
+                label = part.get("label") or ""
+                uuid = part.get("uuid") or ""
+                if label:
+                    devmap[label] = part
+                if uuid:
+                    devmap[uuid] = part
 
-    print(tabulate(table_data, headers=headers, tablefmt="grid"))
+    info = devmap.get(ident)
+    if not info:
+        print(f"No block device matches '{ident}'")
+        return
+    path = info.get("path")
+    mnt = os.path.join("/mnt", os.path.basename(path))
+    # Create mount point with sudo
+    res = func_call(f"sudo mkdir -p {mnt}")
+    if res.returncode:
+        print(f"Failed to create mount point {mnt}: {res.stderr}")
+        return
+    # Mount
+    res = func_call(f"sudo mount {path} {mnt}")
+    if res.returncode == 0:
+        print(f"Mounted {path} at {mnt}")
+    else:
+        print(f"Failed to mount {path}: {res.stderr}")
 
-def help():
-    print("\nAvailable commands:")
-    print("  scan - Scan and list all devices")
-    print("  mount <identifier> - Mount a device")
-    print("  umount <identifier> - Unmount a device")
-    print("  cd <path> - Change directory to the specified path")   
-    print("  delete <path> - Delete the specified file or directory")
-    print("  move <source> <destination> - Move a file or directory")   
-    print("  copy <source> <destination> - Copy a file or directory")
-    print("  ls - List files in the current directory")
-    print("  pwd - Print the current working directory")
-    print("  print <file> - Print the contents of a file")
-    print("  write <file> - Write to a file")
-    print("  help - Show this help message")
-    print("  exit - Exit the program")
+# Unmount regular block device
+def unmount_device(ident):
+    mnt = os.path.join("/mnt", ident.replace("/dev/", ""))
+    res = func_call(f"sudo umount {mnt}")
+    if res.returncode == 0:
+        print(f"Unmounted {mnt}")
+    else:
+        print(f"Failed to unmount {mnt}: {res.stderr}")
 
-def get_device_info():
-    result = func_call("lsblk -o NAME,PATH,LABEL,UUID,SIZE,FSTYPE -J").stdout.strip()
-    data = json.loads(result)
-    device_map = {}
+# Mount iPhone via ifuse
+def mount_iphone(udid):
+    mnt = os.path.join("/mnt", f"iphone_{udid[:8]}")
+    res = func_call(f"sudo mkdir -p {mnt}")
+    if res.returncode:
+        print(f"Failed to create mount point")
+        return
 
-    for device in data.get("blockdevices", []):
-        for partition in device.get("children", []):
-            path = partition.get("path")
-            if path:
-                device_map[path] = {
-                    "label": partition.get("label", "N/A"),
-                    "uuid": partition.get("uuid", "N/A"),
-                    "fstype": partition.get("fstype", "N/A"),
-                    "name": partition.get("name", "N/A")
-                }
-    return device_map
-
-def mount_device(identifier):
-    device_map = get_device_info()
-    mount_point = "/mnt/"+identifier
-    mount_point = mount_point.replace(" ","_")
-    func_call(f"sudo mkdir -p {mount_point}")
-
-    for path, info in device_map.items():
-        result = -1
-        mount_cmd = ""
-        if identifier == path:
-            mount_point = mount_point.replace("/dev/","")
-            mount_cmd = f'sudo mount {path} {mount_point}'
-        elif identifier == info["label"]:
-            mount_cmd = f'sudo mount {path} {mount_point}'
-        elif identifier == info["uuid"]:
-            mount_cmd = f'sudo mount {path} {mount_point}'
-        
-        if mount_cmd!="":
-            # print(mount_cmd)
-            result = func_call(mount_cmd)
-            if result.returncode == 0:
-                print(f"Successfully mounted {identifier} at {mount_point}")
-                print(f"To navigate to the mounted directory, run: cd {mount_point}")
-                print(f"Unmount it using: umount {mount_point[5:]}")
-                return
-            else:
-                print(f"Failed to mount {identifier}: {result.stderr.strip()}")
+    # ADD THIS: change ownership to current user
+    username = os.getenv("SUDO_USER") or os.getenv("USER")
+    if username:
+        res = func_call(f"sudo chown {username}:{username} {mnt}")
+        if res.returncode:
+            print(f"Failed to change ownership of {mnt}: {res.stderr}")
             return
 
-    print(f"No matching device found for identifier: {identifier}")
+    val = func_call("idevicepair validate").stdout
+    if "SUCCESS" not in val:
+        print("Device not paired or trusted. Run 'idevicepair pair' and trust the computer.")
+        return
 
-def unmount_device(identifier):
-    identifier = identifier.replace(" ","_")
-    mount_point = f"/mnt/{identifier}"
-    unmount_cmd = f"sudo umount {mount_point}"
-    result = func_call(unmount_cmd)
-    if result.returncode == 0:
-        print(f"Successfully unmounted {mount_point}.")
+    res = func_call(f"ifuse {mnt} --udid {udid}")
+    if res.returncode == 0:
+        print(f"iPhone mounted at {mnt}")
     else:
-        print(f"Failed to unmount {mount_point}: {result.stderr.strip()}")
+        print(f"Failed to mount iPhone: {res.stderr}")
 
-print("Welcome to the Virtual File System (VFS)!")
-print("Type 'help' for a list of commands")
-print("Note: This program requires root privileges to mount and unmount devices")
-print("Make sure to run it with sudo or as root")
+# Unmount iPhone mountpoint
+def unmount_iphone(udid):
+    mnt = os.path.join("/mnt", f"iphone_{udid[:8]}")
+    res = func_call(f"fusermount -u {mnt}")
+    if res.returncode == 0:
+        print(f"Unmounted iPhone from {mnt}")
+    else:
+        print(f"Failed to unmount iPhone: {res.stderr}")
 
-while True:
-    print()
-    w = func_call("pwd").stdout.strip()
-    input_str = input(f"\033[92mvfs: \033[93m{w} \033[0m> ").strip().split()
+def show_help():
+    help_text = {
+        "scan": "List block and iOS devices.",
+        "mount <identifier>": "Mount a block device or iPhone.",
+        "umount <identifier>": "Unmount a block device or iPhone.",
+        "cd <path>": "Change the current directory.",
+        "ls": "List directory contents.",
+        "pwd": "Show the current directory path.",
+        "delete <path>": "Delete a file or directory.",
+        "move <src> <dst>": "Move or rename a file/directory.",
+        "copy <src> <dst>": "Copy a file or directory.",
+        "print <file>": "Display file contents.",
+        "write <file>": "Edit a file using nano.",
+        "help": "Show this help message.",
+        "exit": "Exit the VFS CLI."
+    }
 
-    if len(input_str) == 0: continue
-    if input_str[0] == "exit": break
-    elif input_str[0] == "scan": scan()
-    elif input_str[0] == "help": help()
+    print("\n\033[1mAvailable VFS CLI Commands:\033[0m\n")
+    for cmd, desc in help_text.items():
+        wrapped = textwrap.fill(desc, width=70, initial_indent=' ' * 5, subsequent_indent=' ' * 10)
+        print(f"  \033[94m{cmd:<20}\033[0m - {wrapped}")
+    print("\nNote: Mounting/unmounting may require sudo privileges.\n")
 
-    elif input_str[0] == "cd":
-        if len(input_str) > 1:
-            path = " ".join(input_str[1:])
-            try: os.chdir(path)
-            except: print(f"Failed to change directory to {path}")
-        else:
-            print("Usage: cd <path>")
+banner = r"""
+    ****************************************************
+    *                                                  *
+    *         __      __   _____    _____              *
+    *         \ \    / /  |  ___|  / ___|              *
+    *          \ \  / /   | |_    | (__                *
+    *           \ \/ /    |  _|   \___  \              *
+    *            \  /     | |      ___) |              *
+    *             \/      |_|     |____/               *
+    *                                                  *       
+    *            Virtual File System CLI               *
+    *                                                  *
+    ****************************************************
     
-    elif input_str[0] == "delete":
-        if len(input_str) > 1:
-            path = " ".join(input_str[1:])
-            ch = input(f"Are you sure you want to delete ? (y/n): ").strip().lower()
-            if ch == "y":
-                command(f'rm -rf {path}')
-                print(f"Deleted {path}")
+    Note: Some commands (mount, umount) need sudo privileges.
+    Type 'help' to see available commands.
+    """
+
+# Main REPL loop
+if __name__ == '__main__':
+    print(banner)
+    while True:
+        cwd = os.getcwd()
+        inp = input(f"\033[92mvfs: \033[93m{cwd} \033[0m> ").strip().split()
+        if not inp:
+            continue
+        cmd, *args = inp
+        if cmd == 'exit':
+            break
+        elif cmd == 'scan':
+            scan()
+        elif cmd == 'help':
+            show_help()
+        elif cmd == 'cd' and args:
+            try:
+                os.chdir(args[0])
+            except Exception as e:
+                print(f"cd error: {e}")
+        elif cmd == 'ls':
+            command('ls ' + ' '.join(args))
+        elif cmd == 'pwd':
+            print(cwd)
+        elif cmd == 'delete' and args:
+            if input(f"Confirm delete {args[0]}? (y/n): ").lower() == 'y':
+                command('rm -rf ' + args[0])
+        elif cmd == 'move' and len(args) == 2:
+            command(f"mv {args[0]} {args[1]}")
+        elif cmd == 'copy' and len(args) == 2:
+            command(f"cp {args[0]} {args[1]}")
+        elif cmd == 'print' and args:
+            command('cat ' + args[0])
+        elif cmd == 'write' and args:
+            command('nano ' + args[0])
+        elif cmd == 'mount' and args:
+            ident = args[0]
+            if 'dev' not in ident:
+                mount_iphone(ident)
             else:
-                print("Deletion cancelled")
+                mount_device(ident)
+        elif cmd == 'umount' and args:
+            ident = args[0]
+            if 'dev' not in ident:
+                unmount_iphone(ident)
+            else:
+                unmount_device(ident)
         else:
-            print("Usage: delete <path>")
-
-    elif input_str[0] == "move":
-        if len(input_str) > 2:
-            all = " ".join(input_str[1:])
-            command(f'mv {all}')
-        else:
-            print("Usage: move <source> <destination>")
-
-    elif input_str[0] == "copy":
-        if len(input_str) > 2:
-            all = " ".join(input_str[1:])
-            command(f'cp {all}')
-        else:
-            print("Usage: copy <source> <destination>")
-
-    elif input_str[0] == "ls" and len(input_str)==1: command("ls")
-    elif input_str[0] == "pwd" and len(input_str)==1: command("pwd")
-
-    elif input_str[0] == "print":
-        if len(input_str) > 1:
-            file_path = " ".join(input_str[1:])
-            command(f'cat {file_path}')
-        else:
-            print("Usage: print <file>")
-
-    elif input_str[0] == "write":
-        if len(input_str) > 1:
-            file = " ".join(input_str[1:])
-            command(f'nano {file}')
-        else:
-            print("Usage: write <file>")
-    
-    elif input_str[0] == "mount":
-        if len(input_str) > 1:
-            identifier = " ".join(input_str[1:])
-            mount_device(identifier)
-        else:
-            print("Usage: mount <identifier>")
-
-    elif input_str[0] == "umount":
-        if len(input_str) > 1:
-            identifier = " ".join(input_str[1:])
-            unmount_device(identifier)
-        else:
-            print("Usage: umount <identifier>")
-        
-    else:
-        print("Invalid command")
+            print("Unknown command. Type 'help' for list.")
