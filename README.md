@@ -3,4 +3,4 @@ VFS Project under ACM IITR
 
 Members: 
 
-Kavy Vaghela , Shorya Panwar , Utkarsh Kumar
+Kavy Vaghela , Shorya Panwar , Pradyuman Singh Shekhawat, Utkarsh Kumar
