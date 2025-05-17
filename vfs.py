@@ -53,6 +53,19 @@ def scan():
     for udid in ios_list:
         rows.append(["iOS", udid, "", "-","AFC", f"/mnt/iphone_{udid[:8]}"])
 
+    gvfs_dir = f"/run/user/{os.getuid()}/gvfs"
+    if os.path.isdir(gvfs_dir):
+        for entry in os.listdir(gvfs_dir):
+            if entry.startswith("mtp:"):
+                rows.append([
+                    "Android MTP",
+                    entry,
+                    "",
+                    "-",
+                    "MTP",
+                    os.path.join(gvfs_dir, entry)
+                ])
+
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
 # Mount regular block device
@@ -194,7 +207,8 @@ if __name__ == '__main__':
             show_help()
         elif cmd == 'cd' and args:
             try:
-                os.chdir(args[0])
+                path = ' '.join(args)
+                os.chdir(path)
             except Exception as e:
                 print(f"cd error: {e}")
         elif cmd == 'ls':
