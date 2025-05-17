@@ -53,19 +53,15 @@ def scan():
     for udid in ios_list:
         rows.append(["iOS", udid, "", "-","AFC", f"/mnt/iphone_{udid[:8]}"])
 
-    gvfs_dir = f"/run/user/{os.getuid()}/gvfs"
-    if os.path.isdir(gvfs_dir):
-        for entry in os.listdir(gvfs_dir):
-            if entry.startswith("mtp:"):
-                rows.append([
-                    "Android MTP",
-                    entry,
-                    "",
-                    "-",
-                    "MTP",
-                    os.path.join(gvfs_dir, entry)
-                ])
+    result = func_call("mtp-detect").stdout.strip().splitlines()
+    idx = 0
+    for i in range(len(result)):
+        if 'Device info' in result[i]:
+            model = result[i+2].split(':')[1].strip()
+            rows.append(["Android", f"mtp_{idx}", model, "-", "MTP", f"/mnt/mtp_{idx}"])
+            idx += 1
 
+    
     print(tabulate(rows, headers=headers, tablefmt="grid"))
 
 # Mount regular block device
@@ -148,6 +144,39 @@ def unmount_iphone(udid):
     else:
         print(f"Failed to unmount iPhone: {res.stderr}")
 
+def mount_mtp(mount_point):
+    # Ensure the mount point directory exists
+    try:
+        os.makedirs(mount_point, exist_ok=True)
+    except Exception as e:
+        print(f"Failed to create mount point: {e}")
+        return
+
+    idx = mount_point.split("_")[-1]
+    cmd = ["simple-mtpfs", "--device", str(idx),mount_point]
+    try:
+        result = func_call(" ".join(cmd))
+        if result.returncode == 0:
+            print(f"Device mounted at {mount_point}")
+        else:
+            print(f"Mount failed: {result.stderr.strip()}")
+    except FileNotFoundError:
+        print("Error: simple-mtpfs not installed.")
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+
+
+def umount_mtp(mount_point):
+    try:
+        result = func_call(f"fusermount -u /mnt/{mount_point}")
+        if result.returncode == 0:
+            print(f"Successfully unmounted")
+            return
+        else:
+            print(f"fusermount failed: {result.stderr.strip()}")
+    except FileNotFoundError:
+        print("fusermount not found. Trying umount instead...")
+
 def show_help():
     help_text = {
         "scan": "List block and iOS devices.",
@@ -228,16 +257,20 @@ if __name__ == '__main__':
             command('nano ' + args[0])
         elif cmd == 'mount' and args:
             ident = args[0]
-            if 'dev' not in ident:
-                mount_iphone(ident)
-            else:
+            if 'dev' in ident:
                 mount_device(ident)
+            elif 'mtp' in ident:
+                mount_mtp(ident)
+            else:
+                mount_iphone(ident)
         elif cmd == 'umount' and args:
             ident = args[0]
-            if 'dev' not in ident:
-                unmount_iphone(ident)
-            else:
+            if 'dev' in ident:
                 unmount_device(ident)
+            elif 'mtp' in ident:
+                unmount_mtp(ident)
+            else:
+                unmount_iphone(ident)
         elif cmd == 'mkdir' and args:
             path = args[0]
             # -p makes parents as needed; wraps in sudo if you want root dirs
